@@ -40,7 +40,7 @@ sta_df_f = pd.read_csv(f'{csv_files_path}/statarea.csv')
 async def main():
     global acc_df, bcl_df, fst_df, frb_df, pre_df, sta_df
     browser = await launch(
-        executablePath=r'C:\Program Files (x86)\Google\Chrome\Application\chrome.exe',
+        executablePath='/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
         headless=False  # Set False if you want to see the browser
     )
 

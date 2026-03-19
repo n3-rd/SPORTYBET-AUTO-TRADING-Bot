@@ -14,7 +14,7 @@ async def main():
     path = f'{full_path}/forebet.csv'
     # Use your Chrome installation path here
     browser = await launch(
-        executablePath=r'C:\Program Files (x86)\Google\Chrome\Application\chrome.exe',
+        executablePath='/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
         headless=False  # Set False if you want to see the browser
     )
     page = await browser.newPage()
