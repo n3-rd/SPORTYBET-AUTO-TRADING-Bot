@@ -18,13 +18,22 @@ def main_date(day = match_day_date):
 
 
 def info_init():
-    print(' \n ########################################################################################################')
-    print('This project was developed by Ezee Kits (Peter) – Electrical & Electronics Engineer, Nigeria 🇳🇬.')
-    print('Automation • Machine Learning • AI • Web Scraping/Automation • Data Engineering.')
-    print('\nGitHub: https://github.com/Ezee-Kits/')
-    print('YouTube: https://www.youtube.com/@Ezee_Kits')
-    print('Email: ezeekits@gmail.com ')
-    print('######################################################################################################## \n')
+    print(r"""
+  ____                            
+ / ___| _ __   ___  _ __ _   _ _   _ _   _ _   _ 
+ \___ \| '_ \ / _ \| '__| | | | | | | | | | | | |
+  ___) | |_) | (_) | |  | |_| | |_| | |_| | |_| |
+ |____/| .__/ \___/|_|   \__, |\__, |\__, |\__, |
+       |_|               |___/ |___/ |___/ |___/ 
+
+ ------------------------------------------------------------------------
+ SPORYYYYY - SPORTYBET AUTO-TRADING BOT
+ Professional Automation • Machine Learning • AI Analysis
+ ------------------------------------------------------------------------
+ Developed by N3rd, originally from Ezee Kits (Peter)
+ GitHub: https://github.com/Ezee-Kits/
+ ------------------------------------------------------------------------
+""")
 
 
 def save_daily_csv():

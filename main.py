@@ -78,8 +78,8 @@ def get_interactive_args():
     print("\n🕵️ AUTOMATION DEPTH")
     print("Explanation: 'Full' (Yes) will run all scrapers to get fresh data before betting.")
     print("             'Bot Only' (No) will jump straight to SportyBet using existing data.")
-    auto_choice = input("Run full automation? (y/n) [default n]: ").strip().lower()
-    place_bet = auto_choice != 'y'
+    auto_choice = (input("Run full automation? (y/n) [default y]: ").strip().lower() or 'y')
+    place_bet = auto_choice == 'n'
 
     return amount, mode, no_ai, total_slips, threshold, place_bet
 
