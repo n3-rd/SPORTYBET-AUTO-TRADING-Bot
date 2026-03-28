@@ -41,7 +41,6 @@ sta_df_f = pd.read_csv(f'{csv_files_path}/statarea.csv')
 async def main():
     global acc_df, bcl_df, fst_df, frb_df, pre_df, sta_df
     browser = await launch({
-        'executablePath': '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
 		'args': [
 		    '--no-sandbox',
 		    '--disable-gpu',
@@ -53,7 +52,7 @@ async def main():
 		    '--use-mock-keychain',
 		    '--ozone-platform=x11'
 		],
-        'headless': False
+        'headless': True
     })
 
 

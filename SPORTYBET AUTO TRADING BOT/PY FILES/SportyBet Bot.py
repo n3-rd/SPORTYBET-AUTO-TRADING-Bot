@@ -7,350 +7,198 @@ import asyncio
 import pandas as pd
 import warnings
 import os
+from dotenv import load_dotenv
+
+import google.generativeai as genai
+
+load_dotenv()
 warnings.simplefilter(action='ignore',category=pd.errors.PerformanceWarning)
 
+# ==========================================================
+# CONFIGURATION
+# ==========================================================
+STAKE_AMOUNT = 100          # Amount to bet per slip
+MAX_GAMES_PER_SLIP = 10     # Max matches in one accumulator
+PERCENT_THRESHOLD = 50      # Min prediction percentage
+MAX_TOTAL_SLIPS = 5         # Stop after placing this many slips
+AI_MODE = True              # Consult Gemini AI before betting
+IGNORE_HISTORY = True       # Set to True for testing to re-bet same matches
+# ==========================================================
 
-browser_delay_time=5000
+# Initialize Gemini if AI_MODE is on
+if AI_MODE:
+    api_key = os.getenv("GEMINI_API_KEY")
+    if api_key:
+        try:
+            genai.configure(api_key=api_key)
+            model = genai.GenerativeModel('gemini-1.5-flash')
+            print("🤖 Gemini AI initialized successfully.")
+        except Exception as e:
+            print(f"⚠️ Gemini init error: {e}")
+            AI_MODE = False
+    else:
+        print("⚠️ AI_MODE is ON but GEMINI_API_KEY is missing in .env!")
+        AI_MODE = False
+
+async def verify_with_ai(home, away, h_per, d_per, a_per, ov_per, un_per, selection):
+    if not AI_MODE: return True
+    
+    print(f"🤔 AI is analyzing: {home} vs {away} ({selection})...")
+    prompt = f"""
+    Analyze this football match: {home} vs {away}.
+    Predictions: Home {h_per:.0f}%, Draw {d_per:.0f}%, Away {a_per:.0f}%, Over2.5 {ov_per:.0f}%.
+    Bot selection: {selection}.
+    Is this a safe bet? Start with 'BET: YES' or 'BET: NO', then 1 short sentence explanation.
+    """
+    try:
+        response = await asyncio.to_thread(model.generate_content, prompt)
+        text = response.text.strip()
+        print(f"🤖 AI Result: {text}")
+        return "BET: YES" in text.upper()
+    except Exception as e:
+        print(f"⚠️ AI API Error: {e}")
+        return True # Fallback
+
 csv_files_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), f'CSV FILES/{str(main_date())} Files')
 save_dir = save_daily_csv2(main_dir=os.path.join(os.path.dirname(os.path.dirname(__file__)),'CSV FILES'),second_dir_path_name=str(main_date())+' Main_Files')
 save_path = f'{save_dir}/Data.csv'
+placed_bets_path = f'{save_dir}/Placed_Bets.csv'
 
+def load_csv_safe(path, name):
+    try:
+        if os.path.exists(path): 
+            df = pd.read_csv(path)
+            # print(f"✅ Loaded {name}: {len(df)} rows")
+            return df
+        else: return pd.DataFrame()
+    except: return pd.DataFrame()
 
-
-percent = 55 # DATA SORTING PERCENT
-A_edge = 0.05 # ACCEPTED EDGE
-FA3W_percent = 57 # FORBET ACCEPTED 3WAY PERCENT
-FA_OVRUND_percent = 63 # FORBET ACCEPTED OVER/UNDER PERCENT
-FA_BTTS_percent = 65 # FORBET ACCEPTED BOTH TEAMS TO SCORE PERCENT
-Err_Timeout = 3500 # WEBPAGE TIMEOUT 
-
-
-
-
-# # Read the CSV files
-acc_df_f = pd.read_csv(f'{csv_files_path}/accumulator.csv')
-bcl_df_f = pd.read_csv(f'{csv_files_path}/betclan.csv')
-fst_df_f = pd.read_csv(f'{csv_files_path}/footballsupertips.csv')
-frb_df_f = pd.read_csv(f'{csv_files_path}/forebet.csv')
-pre_df_f = pd.read_csv(f'{csv_files_path}/prematips.csv')
-sta_df_f = pd.read_csv(f'{csv_files_path}/statarea.csv')
-
-
+acc_df_f = load_csv_safe(f'{csv_files_path}/accumulator.csv', "Accumulator")
+bcl_df_f = load_csv_safe(f'{csv_files_path}/betclan.csv', "BetClan")
+fst_df_f = load_csv_safe(f'{csv_files_path}/footballsupertips.csv', "FootballSuperTips")
+frb_df_f = load_csv_safe(f'{csv_files_path}/forebet.csv', "Forebet")
+pre_df_f = load_csv_safe(f'{csv_files_path}/prematips.csv', "Prematips")
+sta_df_f = load_csv_safe(f'{csv_files_path}/statarea.csv', "Statarea")
 
 async def main():
-    global acc_df, bcl_df, fst_df, frb_df, pre_df, sta_df
-    browser = await launch(
-        executablePath='/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
-        headless=False  # Set False if you want to see the browser
-    )
-
-    
-
+    chrome_path = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'
+    browser = await launch(executablePath=chrome_path if os.path.exists(chrome_path) else None, headless=False, args=['--no-sandbox'])
     page = await browser.newPage()
-    url = 'https://www.sportybet.com/ng/sport/football/today'
-    await page.goto(url=url,timeout = 0,waitUntil='networkidle2')
+    await page.setUserAgent('Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36')
+    await page.goto('https://www.sportybet.com/ng/sport/football/today', timeout=60000, waitUntil='networkidle2')
     await Login_to(page)
 
-
-    running = True
-    next_page = 2
-    while running:
-        for fir_match in range(2,100): # MAIN LAYER (2 MINIMUM VALUE)
-            print(f'\n [[CURRENTLY ON PAGINATION PAGE]] : {next_page-1} & FIRST-MATCH BOX NUMBER {fir_match}\n')
-            try:
-                await page.waitForXPath(f'//*[@id="importMatch"]/div[{fir_match}]/div/div[3]/div[1]', timeout=Err_Timeout)
-                await page.evaluate(f'''
-                    el = document.evaluate('//*[@id="importMatch"]/div[{fir_match}]/div/div[3]/div[1]',
-                    document, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null).singleNodeValue;
-                    el.scrollIntoView({{ behavior: 'smooth', block: 'center' }});
-                ''')
-            except:
-                try:
-                    for avaliable_next_match in range(1,6):
-                        print(f'TRYING OTHER CONTAINER FIRST MATCH, IF AVALIABLE :{avaliable_next_match}:')
-                        fir_match +=avaliable_next_match
-                        try:
-                            await page.waitForXPath(f'//*[@id="importMatch"]/div[{fir_match}]/div/div[3]/div[1]', timeout=1000)
-                            await page.evaluate(f'''
-                                el = document.evaluate('//*[@id="importMatch"]/div[{fir_match}]/div/div[3]/div[1]',
-                                document, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null).singleNodeValue;
-                                el.scrollIntoView({{ behavior: 'smooth', block: 'center' }});
-                            ''')
-                            print(f'OTHER CONTENT CONTAINER FOUND ON :{avaliable_next_match}:')
-                            break
-                        except:
-                            print(f'OTHER CONTENT CONTAINER NOT FOUND YET ON :[{avaliable_next_match}]:')
-                        if avaliable_next_match == 5:
-                            raise ValueError('No more matches found on this page.')
-                except:
-                    is_disabled = await page.Jx('//span[contains(@class, "icon-next") and contains(@class, "icon-disabled")]')
-                    is_NextAvaliable = await page.Jx('//div[@class="pagination pagination"]/span[contains(@class,"icon-next")]')
-                    if is_disabled:
-                        print("\n✅ Reached the last page. No more next pages to click.\n")
-                        running = False
-                        break
-                    elif is_NextAvaliable:
-                        print("\n➡️ Clicking on Next page...\n")
-                        await click_center(page, '//div[@class="pagination pagination"]/span[contains(@class,"icon-next")]')
-                        await page.waitForXPath('//*[@id="importMatch"]/div[2]/div/div[3]/div[1]', timeout=20000)
-                        print(f'\n CLICKED ON NEXXT PAGE : {next_page}\n')
-                        next_page +=1
-                        break
-                    else:
-                        print("\n✅ No more new next pages to click exist.✅ \n")
-                        running = False
-                        break
-
-            sec_match_error_list = []
-            for sec_match in range(2,100): # SUB LAYER (2 MINIMUM VALUE)
-                pp_data = {'INFO':[]}
-                print(f'\n CURRENTLY ON SPORTY NUMBER >>>> {fir_match} ON {sec_match}\n')
+    total_slips_placed = 0
+    print(f"DEBUG: AI_MODE is {'ON' if AI_MODE else 'OFF'}")
+    print(f"DEBUG: IGNORE_HISTORY is {'ON' if IGNORE_HISTORY else 'OFF'}")
     
-                # Wait for the first element to appear
-                try:
-                    element = await page.waitForXPath(f'//*[@id="importMatch"]/div[{fir_match}]/div/div[4]/div[{sec_match}]', timeout=Err_Timeout)
-                    await element.getProperty('textContent')
-                except:
-                    break
+    while total_slips_placed < MAX_TOTAL_SLIPS:
+        try:
+            await page.waitForSelector('.m-table-row, .m-table-cell-home', timeout=10000)
+            await asyncio.sleep(2)
+        except:
+            print("🏁 No more matches found or timeout.")
+            break
 
-                await asyncio.sleep(1)
-                try:
-                    # Scroll element into view
-                    await page.evaluate(f'''
-                        el = document.evaluate('//*[@id="importMatch"]/div[{fir_match}]/div/div[4]/div[{sec_match}]',
-                        document, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null).singleNodeValue;
-                        el.scrollIntoView({{ behavior: 'smooth', block: 'center' }});
-                    ''')
-                except:
-                    print('error on 1 scroll')
-                    break
-                #await asyncio.sleep(1)
+        match_data = await page.evaluate('''() => {
+            const rows = Array.from(document.querySelectorAll('.m-table-row, div[id^="match_"]'));
+            return rows.map((row, idx) => {
+                const home = row.querySelector('.m-table-cell-home, .home-team, div[class*="home"]')?.innerText.trim();
+                const away = row.querySelector('.m-table-cell-away, .away-team, div[class*="away"]')?.innerText.trim();
+                const time = row.querySelector('.m-table-cell-time, .time, div[class*="time"]')?.innerText.trim();
+                return { idx, home, away, time };
+            }).filter(m => m.home && m.away);
+        }''')
 
-                # Scroll again to make sure the next section is visible
-                try:
-                    await page.evaluate(f'''
-                        el = document.evaluate('//*[@id="importMatch"]/div[{fir_match}]/div/div[4]/div[{sec_match}]',
-                        document, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null).singleNodeValue;
-                        el.scrollIntoView({{ behavior: 'smooth', block: 'center' }});
-                    ''')
-                except:
-                    print('error on 2 scroll')
-                    break
-
-                # Extract text values
-                print('currently on data extraction')
-                try:
-                    date_elem = await page.waitForXPath(f'//*[@id="importMatch"]/div[{fir_match}]/div/div[4]/div[1]/div[1]',timeout = Err_Timeout)
-                    spt_date = (await (await date_elem.getProperty('textContent')).jsonValue()).split()[0]
-                    spt_date = datetime.strptime(f"2025/{spt_date}", "%Y/%d/%m").strftime("%Y-%m-%d")
-
-                    time_elem = await page.waitForXPath(f'//*[@id="importMatch"]/div[{fir_match}]/div/div[4]/div[{sec_match}]/div[1]/div/div[1]/div[1]', timeout=Err_Timeout)
-                    spt_time = (await (await time_elem.getProperty('textContent')).jsonValue()).strip()
-
-                    home_elem = await page.waitForXPath(f'//*[@id="importMatch"]/div[{fir_match}]/div/div[4]/div[{sec_match}]/div[1]/div/div[2]/div[1]', timeout=Err_Timeout)
-                    spt_home_team = (await (await home_elem.getProperty('textContent')).jsonValue()).strip().replace('SRL','SIMULATED REALITY LEAGUE')
-
-                    away_elem = await page.waitForXPath(f'//*[@id="importMatch"]/div[{fir_match}]/div/div[4]/div[{sec_match}]/div[1]/div/div[2]/div[2]', timeout=Err_Timeout)
-                    spt_away_team = (await (await away_elem.getProperty('textContent')).jsonValue()).strip().replace('SRL','SIMULATED REALITY LEAGUE')
-
-                except:
-                    print('error on data extraction section')
-                    break
+        print(f"\n🚀 Sourced {len(match_data)} matches. Scanning for batches...")
         
-                print(spt_date, spt_time, spt_home_team, spt_away_team)
+        batch_selections = [] 
+        
+        for m in match_data:
+            if total_slips_placed >= MAX_TOTAL_SLIPS: break
+            if len(batch_selections) >= MAX_GAMES_PER_SLIP:
+                print(f"📦 Batch full ({MAX_GAMES_PER_SLIP} games).")
+                break
 
-                pp_target = f'{spt_date}-{spt_time}-{spt_home_team}-{spt_away_team}'
-                pp_data['INFO'].append(pp_target)
-    
-                
+            spt_home_team = m['home'].replace('SRL','SIMULATED REALITY LEAGUE')
+            spt_away_team = m['away'].replace('SRL','SIMULATED REALITY LEAGUE')
+            spt_time = m['time'] or "00:00"
+            pp_target = f"{spt_home_team}-{spt_away_team}"
+
+            # History Check
+            if not IGNORE_HISTORY and os.path.exists(placed_bets_path):
                 try:
-                    pp_data_df = pd.read_csv(save_path)['INFO'].to_list()
-                except:
-                    pp_data_df = pd.DataFrame({'INFO':['starting']})['INFO'].to_list()
+                    history = pd.read_csv(placed_bets_path)
+                    if not history.empty and pp_target in history['INFO'].values:
+                        continue
+                except: pass
 
-                if pp_target not in pp_data_df:
-                    saving_files(data=pp_data,path=save_path)
+            # Match across all CSVs
+            matches = []
+            for name, df in [("ACC", acc_df_f), ("BCL", bcl_df_f), ("FST", fst_df_f), ("FRB", frb_df_f), ("PRE", pre_df_f), ("STA", sta_df_f)]:
+                res = sort_by_name_and_time_exact(df, spt_home_team, spt_away_team, spt_time, PERCENT_THRESHOLD)
+                if not res.empty:
+                    matches.append(res)
 
-                    acc_df = sort_by_name_and_time_exact(acc_df_f, spt_home_team, spt_away_team, spt_time, percent)
-                    bcl_df = sort_by_name_and_time_exact(bcl_df_f, spt_home_team, spt_away_team, spt_time, percent)
-                    fst_df = sort_by_name_and_time_exact(fst_df_f, spt_home_team, spt_away_team, spt_time, percent)
-                    frb_df = sort_by_name_and_time_exact(frb_df_f, spt_home_team, spt_away_team, spt_time, percent)
-                    pre_df = sort_by_name_and_time_exact(pre_df_f, spt_home_team, spt_away_team, spt_time, percent)
-                    sta_df = sort_by_name_and_time_exact(sta_df_f, spt_home_team, spt_away_team, spt_time, percent)
+            if len(matches) >= 2:
+                new_df = pd.concat(matches, ignore_index=True).drop_duplicates(subset=['NAME'],keep='first')
+                h_per = new_df['HOME PER'].mean()
+                a_per = new_df['AWAY PER'].mean()
+                ov_per = new_df['OVER 2.5'].mean()
+                d_per = new_df['DRAW PER'].mean()
+                un_per = new_df['UNDER 2.5'].mean()
+                
+                selection = "Home Win" if h_per >= 50 else "Away Win" if a_per >= 50 else None
+                
+                if selection:
+                    if await verify_with_ai(spt_home_team, spt_away_team, h_per, d_per, a_per, ov_per, un_per, selection):
+                        col = 0 if selection == "Home Win" else 2
+                        batch_selections.append({'idx': m['idx'], 'col': col, 'target': pp_target})
+                        print(f"   ✅ AI Approved: {spt_home_team} vs {spt_away_team} -> {selection}")
+                    else:
+                        print(f"   ❌ AI Rejected: {spt_home_team} vs {spt_away_team}")
 
-                    all_df = [acc_df,bcl_df,fst_df,frb_df,pre_df,sta_df]
-                    old_new_df = pd.concat(all_df, ignore_index=True)
-                    new_df = old_new_df.drop_duplicates(subset=['NAME'],keep='first')
-                    try:
-                        frb_time = new_df['TIME'][0]
-                        frb_home_team = new_df['HOME TEAM'][0]
-                        frb_away_team = new_df['AWAY TEAM'][0]
-                        frb_home_per = round(new_df['HOME PER'].mean(), 2)
-                        frb_draw_per = round(new_df['DRAW PER'].mean(), 2)
-                        frb_away_per = round(new_df['AWAY PER'].mean(), 2)
-                        frb_ovr25_per = round(new_df['OVER 2.5'].mean(), 2)
-                        frb_und25_per = round(new_df['UNDER 2.5'].mean(), 2)
-                        frb_bts_per = round(new_df['BTS'].mean(), 2)
-                        frb_ots_per = round(new_df['OTS'].mean(), 2)
-                        print(f'LEN_DF:{len(new_df)} (H:{frb_home_per}) (D:{frb_draw_per}) A:({frb_away_per}) (OV:{frb_ovr25_per}) (UN:{frb_und25_per}) (BTS:{frb_bts_per}) (OTS:{frb_ots_per}) \n')
-                    except:
-                        pass
+        # Place the slip
+        if batch_selections:
+            print(f"⚡ Selecting {len(batch_selections)} games...")
+            await page.evaluate('''(selections) => {
+                const rows = document.querySelectorAll('.m-table-row, div[id^="match_"]');
+                selections.forEach(s => {
+                    const row = rows[s.idx];
+                    if (row) {
+                        const odds = row.querySelectorAll('.m-outcome-odds, .m-outcome-item');
+                        if(odds[s.col]) {
+                            ['mousedown', 'click'].forEach(evt => odds[s.col].dispatchEvent(new MouseEvent(evt, {bubbles:true})));
+                        }
+                    }
+                });
+            }''', batch_selections)
+            
+            await asyncio.sleep(2)
+            if await place_bet(page, 0, main_amt=STAKE_AMOUNT):
+                total_slips_placed += 1
+                for s in batch_selections:
+                    saving_files(data={'INFO': [s['target']]}, path=placed_bets_path)
+                print(f"✅ Slip #{total_slips_placed} placed!")
+            
+            await page.evaluate('() => { document.querySelector(".m-betslip-delete-all")?.click(); }')
+            batch_selections = [] 
+            if total_slips_placed >= MAX_TOTAL_SLIPS: break
+            continue 
 
-                    
-                    print('==================== MATCHED DATA ====================== \n')
-                    print(new_df)                    
+        # Next page
+        is_Next = await page.Jx('//div[@class="pagination pagination"]/span[contains(@class,"icon-next") and not(contains(@class,"icon-disabled"))]')
+        if is_Next:
+            await is_Next[0].click()
+            print("➡️ Next Page...")
+            await asyncio.sleep(4)
+        else:
+            print("🏁 No more pages.")
+            break
 
-                    if len(new_df) >=3 and max(frb_home_per, frb_draw_per, frb_away_per) >=FA3W_percent:
-                        # ======================================  1 X 2 OPTIONS  ===============================================
-                        print(' \n 1 X 2 DETECTED, CHECKING FOR EDGE ODDS NOW....')
-                        await click_center(page, f'//*[@id="importMatch"]/div[{fir_match}]/div/div[3]/div[1]')
-                        await click_center(page, f'//*[@id="importMatch"]/div[{fir_match}]/div/div[3]/div[1]')
-
-                        if frb_home_per >= FA3W_percent:
-                            try:
-                                spt_hodd = await page.waitForXPath(f'//*[@id="importMatch"]/div[{fir_match}]/div/div[4]/div[{sec_match}]/div[2]/div[1]/div[1]')
-                                spt_hodd_text = (await (await spt_hodd.getProperty('textContent')).jsonValue()).strip()
-                                home_edge = cal(float(spt_hodd_text), frb_home_per)
-                                if home_edge >= A_edge:
-                                    await asyncio.sleep(1.5)
-                                    await click_center(page, f'//*[@id="importMatch"]/div[{fir_match}]/div/div[4]/div[{sec_match}]/div[2]/div[1]/div[1]')
-                                    await place_bet(page, home_edge)
-                                    print(f'\n PLACED BET ON >>>>> (HOME EDGE : {home_edge} %  @ {spt_hodd_text} WITH ACCU : {frb_home_per}% ) \n')
-                                print(f'HOME EDGE : {home_edge} %  @ {spt_hodd_text} WITH ACCU : {frb_home_per}% \n')
-                            except Exception as e:
-                                print(f"Error fetching home odd: {e}")
-                        
-                        if frb_draw_per >= FA3W_percent:
-                            try:
-                                spt_dodd = await page.waitForXPath(f'//*[@id="importMatch"]/div[{fir_match}]/div/div[4]/div[{sec_match}]/div[2]/div[1]/div[2]')
-                                spt_dodd_text = (await (await spt_dodd.getProperty('textContent')).jsonValue()).strip()
-                                draw_edge = cal(float(spt_dodd_text), frb_draw_per)
-                                if draw_edge >= A_edge:
-                                    await asyncio.sleep(1.5)
-                                    await click_center(page, f'//*[@id="importMatch"]/div[{fir_match}]/div/div[4]/div[{sec_match}]/div[2]/div[1]/div[2]')
-                                    await place_bet(page, draw_edge)
-                                    print(f'\n PLACED BET ON >>>>> (DRAW EDGE : {draw_edge} %  @ {spt_dodd_text} WITH ACCU : {frb_draw_per}% ) \n')
-                                print(f'DRAW EDGE : {draw_edge} %  @ {spt_dodd_text} WITH ACCU : {frb_draw_per}% \n')
-                            except Exception as e:
-                                print(f"Error fetching draw odd: {e}")
-
-
-                        if frb_away_per >= FA3W_percent:
-                            try:
-                                spt_aodd = await page.waitForXPath(f'//*[@id="importMatch"]/div[{fir_match}]/div/div[4]/div[{sec_match}]/div[2]/div[1]/div[3]')
-                                spt_aodd_text = (await (await spt_aodd.getProperty('textContent')).jsonValue()).strip()
-                                away_edge = cal(float(spt_aodd_text), frb_away_per)
-                                if away_edge >= A_edge:
-                                    await asyncio.sleep(1.5)
-                                    await click_center(page, f'//*[@id="importMatch"]/div[{fir_match}]/div/div[4]/div[{sec_match}]/div[2]/div[1]/div[3]')
-                                    await place_bet(page, away_edge)
-                                    print(f'\n PLACED BET ON >>>>> (AWAY EDGE : {away_edge} %  @ {spt_aodd_text} WITH ACCU : {frb_away_per}% ) \n')
-                                print(f'AWAY EDGE : {away_edge} %  @ {spt_aodd_text} WITH ACCU : {frb_away_per}% \n')
-                            except Exception as e:
-                                print(f"Error fetching away odd: {e}")
-
-
-
-                    if len(new_df) >=3 and max(frb_ovr25_per, frb_und25_per) >= FA_OVRUND_percent:
-
-                        # ======================================== Over/Under 2.5 OPTIONS ================================================
-                        print(' \n CLICKING ON OVER/UNDER 2.5 OPTION NOW....')
-                        xpath = f'//*[@id="importMatch"]/div[{fir_match}]/div/div[4]/div[{sec_match}]/div[2]/div[2]/div[1]'
-                        try:
-                            elements = await page.xpath(xpath)
-                            if elements:
-                                await elements[0].click()
-                                await asyncio.sleep(1)  # Give time for dropdown animation
-                            else:
-                                pass
-                            await page.waitForSelector('.af-select-list-open', {'visible': True, 'timeout': 6000})
-                            await page.evaluate('''() => {
-                                const options = document.querySelectorAll('.af-select-list-open .af-select-item');
-                                for (let opt of options) {
-                                    if (opt.textContent.trim() === '2.5') {
-                                        opt.click();
-                                        break;
-                                    }
-                                }
-                            }''')
-                        except:
-                            print('\n MAYBE OVR/UND 2.5 SELECTION DOESNT EXIST \n')
-
-                        try:
-                            main_ovr_odd = await page.waitForXPath(xpath, timeout=Err_Timeout)
-                            main_ovr_odd_text = (await (await main_ovr_odd.getProperty('textContent')).jsonValue()).strip()
-                        except:
-                            main_ovr_odd_text = '5.5'
-                            
-                        if '2.5' in main_ovr_odd_text:
-                            print('OVER / UNDER 2.5 DETECTED, CHECKING FOR EDGE ODDS NOW....')
-                            await asyncio.sleep(1)
-                            if frb_ovr25_per >= FA_OVRUND_percent:
-                                try:
-                                    spt_ovr_odd = await page.waitForXPath(f'//*[@id="importMatch"]/div[{fir_match}]/div/div[4]/div[{sec_match}]/div[2]/div[2]/div[2]')
-                                    spt_ovr_odd_text = (await (await spt_ovr_odd.getProperty('textContent')).jsonValue()).strip()
-                                    over_edge = cal(float(spt_ovr_odd_text), frb_ovr25_per)
-                                    if over_edge >= A_edge:
-                                        await asyncio.sleep(1.5)
-                                        await click_center(page, f'//*[@id="importMatch"]/div[{fir_match}]/div/div[4]/div[{sec_match}]/div[2]/div[2]/div[2]')
-                                        await place_bet(page, over_edge)
-                                        print(f'\n PLACED BET ON >>>>> (OVER 2.5 EDGE : {over_edge} %  @ {spt_ovr_odd_text} WITH ACCU : {frb_ovr25_per}% ) \n')
-                                    print(f'OVER 2.5 EDGE : {over_edge} %  @ {spt_ovr_odd_text} WITH ACCU : {frb_ovr25_per}% \n')
-                                except Exception as e:
-                                    print(f"Error fetching over odd: {e}")
-
-                            if frb_und25_per >= FA_OVRUND_percent:
-                                try:
-                                    spt_und_odd = await page.waitForXPath(f'//*[@id="importMatch"]/div[{fir_match}]/div/div[4]/div[{sec_match}]/div[2]/div[2]/div[3]')
-                                    spt_und_odd_text = (await (await spt_und_odd.getProperty('textContent')).jsonValue()).strip()
-                                    under_edge = cal(float(spt_und_odd_text), frb_und25_per)
-                                    if under_edge >= A_edge:
-                                        await asyncio.sleep(1.5)
-                                        await click_center(page, f'//*[@id="importMatch"]/div[{fir_match}]/div/div[4]/div[{sec_match}]/div[2]/div[2]/div[3]')
-                                        await place_bet(page, under_edge)
-                                        print(f'\n PLACED BET ON >>>>> (UNDER 2.5 EDGE : {under_edge} %  @ {spt_und_odd_text} WITH ACCU : {frb_und25_per}% ) \n')
-                                    print(f'UNDER 2.5 EDGE : {under_edge} %  @ {spt_und_odd_text} WITH ACCU : {frb_und25_per}% \n')
-                                except Exception as e:
-                                    print(f"Error fetching under odd: {e}")
-
-
-
-                    if len(new_df) >=3 and max(frb_bts_per, frb_ots_per) >= FA_BTTS_percent:
-                        # # =====================================     BTS / OTS OPTIONS   ============================================
-                        print(' \n CLICKING ON BTS/OTS OPTION NOW....')
-                        await click_center(page, f'//*[@id="importMatch"]/div[{fir_match}]/div/div[3]/div[3]')
-                        await click_center(page, f'//*[@id="importMatch"]/div[{fir_match}]/div/div[3]/div[3]')
-
-                        if frb_bts_per >= FA_BTTS_percent:
-                            try:
-                                spt_bts_odd = await page.waitForXPath(f'//*[@id="importMatch"]/div[{fir_match}]/div/div[4]/div[{sec_match}]/div[2]/div/div[1]')
-                                spt_bts_odd_text = (await (await spt_bts_odd.getProperty('textContent')).jsonValue()).strip()
-                                bts_edge = cal(float(spt_bts_odd_text), frb_bts_per)
-                                if bts_edge >= A_edge:
-                                    await asyncio.sleep(1.5)
-                                    await click_center(page, f'//*[@id="importMatch"]/div[{fir_match}]/div/div[4]/div[{sec_match}]/div[2]/div/div[1]')
-                                    await place_bet(page, bts_edge) 
-                                    print(f'\n PLACED BET ON >>>>> (BOTH TEAMS TO SCORE EDGE : {bts_edge} %  @ {spt_bts_odd_text} WITH ACCU : {frb_bts_per}% ) \n')
-                                print(f'BOTH TEAMS TO SCORE EDGE : {bts_edge} %  @ {spt_bts_odd_text} WITH ACCU : {frb_bts_per}% \n')
-                            except Exception as e:
-                                print(f"Error fetching BTS odd: {e}")
-
-                        if frb_ots_per >= FA_BTTS_percent:
-                            try:
-                                spt_ots_odd = await page.waitForXPath(f'//*[@id="importMatch"]/div[{fir_match}]/div/div[4]/div[{sec_match}]/div[2]/div/div[2]')
-                                spt_ots_odd_text = (await (await spt_ots_odd.getProperty('textContent')).jsonValue()).strip()
-                                ots_edge = cal(float(spt_ots_odd_text), frb_ots_per)
-                                if ots_edge >= A_edge:    
-                                    await asyncio.sleep(1.5)
-                                    await click_center(page, f'//*[@id="importMatch"]/div[{fir_match}]/div/div[4]/div[{sec_match}]/div[2]/div/div[2]')
-                                    await place_bet(page, ots_edge)
-                                    print(f'\n PLACED BET ON >>>>> (OTS SCORE EDGE : {ots_edge} %  @ {spt_ots_odd_text} WITH ACCU : {frb_ots_per}% ) \n')
-                                print(f'OTS SCORE EDGE : {ots_edge} %  @ {spt_ots_odd_text} WITH ACCU : {frb_ots_per}% \n')
-                            except Exception as e:
-                                print(f"Error fetching OTS odd: {e}")
-                                    
-  
-
+    print(f"DONE. Placed {total_slips_placed} slips total.")
+    await asyncio.sleep(10)
     await browser.close()
 
-asyncio.run(main())
+if __name__ == "__main__":
+    asyncio.run(main())
