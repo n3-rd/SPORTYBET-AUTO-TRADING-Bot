@@ -1,8 +1,8 @@
 from func import main_date,save_daily_csv2,saving_files,place_bet,sort_by_name_and_time_exact,click_center
 from datetime import datetime
 from pyppeteer import launch
-from Main_Calc import cal
-from Login import Login_to
+from main_calc import cal
+from login import Login_to
 import asyncio
 import pandas as pd
 import warnings
@@ -10,31 +10,42 @@ import os
 warnings.simplefilter(action='ignore',category=pd.errors.PerformanceWarning)
 
 
+# ==========================================================
+# CONFIGURATION
+# ==========================================================
+# Look for STAKE_AMOUNT in env, default to 100
+STAKE_AMOUNT = int(os.getenv("STAKE_AMOUNT", "100")) 
+# ==========================================================
+
 browser_delay_time=5000
-csv_files_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), f'CSV FILES/{str(main_date())} Files')
-save_dir = save_daily_csv2(main_dir=os.path.join(os.path.dirname(os.path.dirname(__file__)),'CSV FILES'),second_dir_path_name=str(main_date())+' Main_Files')
-save_path = f'{save_dir}/Data.csv'
+# Project structure: root/src/SportyBet_Phone.py -> data/
+project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+csv_files_path = os.path.join(project_root, 'data', f'{str(main_date())} Files')
+save_dir = save_daily_csv2(main_dir=os.path.join(project_root, 'data'), second_dir_path_name=str(main_date()) + ' Main_Files')
+save_path = os.path.join(save_dir, 'Data.csv')
 
+def load_csv_safe(path):
+    try:
+        if os.path.exists(path):
+            return pd.read_csv(path)
+        return pd.DataFrame()
+    except:
+        return pd.DataFrame()
 
-
-percent = 55 # DATA SORTING PERCENT
+percent = int(os.getenv("PERCENT_THRESHOLD", "55")) # DATA SORTING PERCENT
 A_edge = 0.05 # ACCEPTED EDGE
 FA3W_percent = 57 # FORBET ACCEPTED 3WAY PERCENT
 FA_OVRUND_percent = 63 # FORBET ACCEPTED OVER/UNDER PERCENT
 FA_BTTS_percent = 65 # FORBET ACCEPTED BOTH TEAMS TO SCORE PERCENT
 Err_Timeout = 3500 # WEBPAGE TIMEOUT 
 
-
-
-
-
-# # Read the CSV files
-acc_df_f = pd.read_csv(f'{csv_files_path}/accumulator.csv')
-bcl_df_f = pd.read_csv(f'{csv_files_path}/betclan.csv')
-fst_df_f = pd.read_csv(f'{csv_files_path}/footballsupertips.csv')
-frb_df_f = pd.read_csv(f'{csv_files_path}/forebet.csv')
-pre_df_f = pd.read_csv(f'{csv_files_path}/prematips.csv')
-sta_df_f = pd.read_csv(f'{csv_files_path}/statarea.csv')
+# Read the CSV files safely
+acc_df_f = load_csv_safe(f'{csv_files_path}/accumulator.csv')
+bcl_df_f = load_csv_safe(f'{csv_files_path}/betclan.csv')
+fst_df_f = load_csv_safe(f'{csv_files_path}/footballsupertips.csv')
+frb_df_f = load_csv_safe(f'{csv_files_path}/forebet.csv')
+pre_df_f = load_csv_safe(f'{csv_files_path}/prematips.csv')
+sta_df_f = load_csv_safe(f'{csv_files_path}/statarea.csv')
 
 
 
@@ -224,8 +235,8 @@ async def main():
                                 if home_edge >= A_edge:
                                     await asyncio.sleep(1.5)
                                     await click_center(page, f'//*[@id="importMatch"]/div[{fir_match}]/div/div[4]/div[{sec_match}]/div[2]/div[1]/div[1]')
-                                    await place_bet(page, home_edge)
-                                    print(f'\n PLACED BET ON >>>>> (HOME EDGE : {home_edge} %  @ {spt_hodd_text} WITH ACCU : {frb_home_per}% ) \n')
+                                    if await place_bet(page, home_edge, main_amt=STAKE_AMOUNT):
+                                        print(f'\n ✅ PLACED BET ON >>>>> (HOME EDGE : {home_edge} %  @ {spt_hodd_text} WITH ACCU : {frb_home_per}% ) \n')
                                 print(f'HOME EDGE : {home_edge} %  @ {spt_hodd_text} WITH ACCU : {frb_home_per}% \n')
                             except Exception as e:
                                 print(f"Error fetching home odd: {e}")
@@ -238,8 +249,8 @@ async def main():
                                 if draw_edge >= A_edge:
                                     await asyncio.sleep(1.5)
                                     await click_center(page, f'//*[@id="importMatch"]/div[{fir_match}]/div/div[4]/div[{sec_match}]/div[2]/div[1]/div[2]')
-                                    await place_bet(page, draw_edge)
-                                    print(f'\n PLACED BET ON >>>>> (DRAW EDGE : {draw_edge} %  @ {spt_dodd_text} WITH ACCU : {frb_draw_per}% ) \n')
+                                    if await place_bet(page, draw_edge, main_amt=STAKE_AMOUNT):
+                                        print(f'\n ✅ PLACED BET ON >>>>> (DRAW EDGE : {draw_edge} %  @ {spt_dodd_text} WITH ACCU : {frb_draw_per}% ) \n')
                                 print(f'DRAW EDGE : {draw_edge} %  @ {spt_dodd_text} WITH ACCU : {frb_draw_per}% \n')
                             except Exception as e:
                                 print(f"Error fetching draw odd: {e}")
@@ -253,8 +264,8 @@ async def main():
                                 if away_edge >= A_edge:
                                     await asyncio.sleep(1.5)
                                     await click_center(page, f'//*[@id="importMatch"]/div[{fir_match}]/div/div[4]/div[{sec_match}]/div[2]/div[1]/div[3]')
-                                    await place_bet(page, away_edge)
-                                    print(f'\n PLACED BET ON >>>>> (AWAY EDGE : {away_edge} %  @ {spt_aodd_text} WITH ACCU : {frb_away_per}% ) \n')
+                                    if await place_bet(page, away_edge, main_amt=STAKE_AMOUNT):
+                                        print(f'\n ✅ PLACED BET ON >>>>> (AWAY EDGE : {away_edge} %  @ {spt_aodd_text} WITH ACCU : {frb_away_per}% ) \n')
                                 print(f'AWAY EDGE : {away_edge} %  @ {spt_aodd_text} WITH ACCU : {frb_away_per}% \n')
                             except Exception as e:
                                 print(f"Error fetching away odd: {e}")
@@ -303,8 +314,8 @@ async def main():
                                     if over_edge >= A_edge:
                                         await asyncio.sleep(1.5)
                                         await click_center(page, f'//*[@id="importMatch"]/div[{fir_match}]/div/div[4]/div[{sec_match}]/div[2]/div[2]/div[2]')
-                                        await place_bet(page, over_edge)
-                                        print(f'\n PLACED BET ON >>>>> (OVER 2.5 EDGE : {over_edge} %  @ {spt_ovr_odd_text} WITH ACCU : {frb_ovr25_per}% ) \n')
+                                        if await place_bet(page, over_edge, main_amt=STAKE_AMOUNT):
+                                            print(f'\n ✅ PLACED BET ON >>>>> (OVER 2.5 EDGE : {over_edge} %  @ {spt_ovr_odd_text} WITH ACCU : {frb_ovr25_per}% ) \n')
                                     print(f'OVER 2.5 EDGE : {over_edge} %  @ {spt_ovr_odd_text} WITH ACCU : {frb_ovr25_per}% \n')
                                 except Exception as e:
                                     print(f"Error fetching over odd: {e}")
@@ -317,8 +328,8 @@ async def main():
                                     if under_edge >= A_edge:
                                         await asyncio.sleep(1.5)
                                         await click_center(page, f'//*[@id="importMatch"]/div[{fir_match}]/div/div[4]/div[{sec_match}]/div[2]/div[2]/div[3]')
-                                        await place_bet(page, under_edge)
-                                        print(f'\n PLACED BET ON >>>>> (UNDER 2.5 EDGE : {under_edge} %  @ {spt_und_odd_text} WITH ACCU : {frb_und25_per}% ) \n')
+                                        if await place_bet(page, under_edge, main_amt=STAKE_AMOUNT):
+                                            print(f'\n ✅ PLACED BET ON >>>>> (UNDER 2.5 EDGE : {under_edge} %  @ {spt_und_odd_text} WITH ACCU : {frb_und25_per}% ) \n')
                                     print(f'UNDER 2.5 EDGE : {under_edge} %  @ {spt_und_odd_text} WITH ACCU : {frb_und25_per}% \n')
                                 except Exception as e:
                                     print(f"Error fetching under odd: {e}")
@@ -339,8 +350,8 @@ async def main():
                                 if bts_edge >= A_edge:
                                     await asyncio.sleep(1.5)
                                     await click_center(page, f'//*[@id="importMatch"]/div[{fir_match}]/div/div[4]/div[{sec_match}]/div[2]/div/div[1]')
-                                    await place_bet(page, bts_edge) 
-                                    print(f'\n PLACED BET ON >>>>> (BOTH TEAMS TO SCORE EDGE : {bts_edge} %  @ {spt_bts_odd_text} WITH ACCU : {frb_bts_per}% ) \n')
+                                    if await place_bet(page, bts_edge, main_amt=STAKE_AMOUNT): 
+                                        print(f'\n ✅ PLACED BET ON >>>>> (BOTH TEAMS TO SCORE EDGE : {bts_edge} %  @ {spt_bts_odd_text} WITH ACCU : {frb_bts_per}% ) \n')
                                 print(f'BOTH TEAMS TO SCORE EDGE : {bts_edge} %  @ {spt_bts_odd_text} WITH ACCU : {frb_bts_per}% \n')
                             except Exception as e:
                                 print(f"Error fetching BTS odd: {e}")
@@ -353,8 +364,8 @@ async def main():
                                 if ots_edge >= A_edge:    
                                     await asyncio.sleep(1.5)
                                     await click_center(page, f'//*[@id="importMatch"]/div[{fir_match}]/div/div[4]/div[{sec_match}]/div[2]/div/div[2]')
-                                    await place_bet(page, ots_edge)
-                                    print(f'\n PLACED BET ON >>>>> (OTS SCORE EDGE : {ots_edge} %  @ {spt_ots_odd_text} WITH ACCU : {frb_ots_per}% ) \n')
+                                    if await place_bet(page, ots_edge, main_amt=STAKE_AMOUNT):
+                                        print(f'\n ✅ PLACED BET ON >>>>> (OTS SCORE EDGE : {ots_edge} %  @ {spt_ots_odd_text} WITH ACCU : {frb_ots_per}% ) \n')
                                 print(f'OTS SCORE EDGE : {ots_edge} %  @ {spt_ots_odd_text} WITH ACCU : {frb_ots_per}% \n')
                             except Exception as e:
                                 print(f"Error fetching OTS odd: {e}")
@@ -363,4 +374,5 @@ async def main():
 
     await browser.close()
 
-asyncio.run(main())
+if __name__ == "__main__":
+    asyncio.run(main())

@@ -30,9 +30,9 @@ def info_init():
 def save_daily_csv():
     # Folder name
     folder_name = f"{str(main_date())} Files"
-    # Get the parent directory of this file's directory (SPORTYBET AUTO TRADING BOT)
-    parent_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    main_dir = os.path.join(parent_dir, "CSV FILES")
+    # Get the project root directory
+    project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    main_dir = os.path.join(project_root, "data")
     path = os.path.join(main_dir, folder_name)
 
     # Create folder if it doesn't exist
@@ -44,16 +44,20 @@ def save_daily_csv():
         pass
     return path
 
-def save_daily_csv2(main_dir,second_dir_path_name):
-    # Folder name
+def save_daily_csv2(main_dir, second_dir_path_name):
+    # Ensure main_dir exists
+    if not os.path.exists(main_dir):
+        os.makedirs(main_dir, exist_ok=True)
+        
     path = os.path.join(main_dir, second_dir_path_name)
 
     # Create folder if it doesn't exist
     if not os.path.exists(path):
-        os.makedirs(path)
-        print(f" \n PATH ALREADY EXIST BUT WAS CREATED SUCCESFULLY \n ")
+        os.makedirs(path, exist_ok=True)
+        print(f" \n PATH CREATED SUCCESFULLY: {path} \n ")
     else:
-        print(f" \n PATH ALREADY EXIST BUT WAS CREATED SUCCESFULLY \n ")
+        # print(f" \n PATH ALREADY EXISTS: {path} \n ")
+        pass
     return path
 
 def requests_init(url):
@@ -110,7 +114,7 @@ async def place_bet(page, edge_amt, browser_delay_time=2000, main_amt=100):
         print(f"💰 Initializing {main_amt} Naira Batch Bet...")
         
         # 1️⃣ TARGET SPECIFIC STAKE INPUT FROM HTML
-        success = await page.evaluate('''(amt) => {
+        success = await page.evaluate('''function(amt) {
             const input = document.querySelector('#j_stake_0 input') || document.querySelector('.m-input.fs-exclude');
             if (input) {
                 input.value = amt.toString();
@@ -129,22 +133,28 @@ async def place_bet(page, edge_amt, browser_delay_time=2000, main_amt=100):
 
         await asyncio.sleep(2) 
 
-        # 2️⃣ VERIFY TOTAL STAKE
-        total_stake = await page.evaluate('''() => {
-            const valueEl = document.querySelector('.m-betslip-total-stake-value');
-            if (valueEl && valueEl.innerText.includes('100')) return valueEl.innerText;
+        # 2️⃣ VERIFY TOTAL STAKE (Retry up to 3 times to allow UI refresh)
+        verified = False
+        for i in range(3):
+            total_stake = await page.evaluate('''(amt) => {
+                const valueEl = document.querySelector('.m-betslip-total-stake-value');
+                if (valueEl && valueEl.innerText.includes(amt.toString())) return valueEl.innerText;
 
-            const labels = Array.from(document.querySelectorAll('.m-label'));
-            const totalLabel = labels.find(l => l.innerText.includes('Total Stake'));
-            if (totalLabel && totalLabel.nextElementSibling) {
-                return totalLabel.nextElementSibling.innerText.trim();
-            }
-            return document.querySelector('.m-betslip')?.innerText || "NOT_FOUND";
-        }''')
+                const labels = Array.from(document.querySelectorAll('.m-label'));
+                const totalLabel = labels.find(l => l.innerText.includes('Total Stake'));
+                if (totalLabel && totalLabel.nextElementSibling) {
+                    return totalLabel.nextElementSibling.innerText.trim();
+                }
+                return document.querySelector('.m-betslip')?.innerText || "NOT_FOUND";
+            }''', main_amt)
+            
+            if str(main_amt) in total_stake.replace(',', ''):
+                verified = True
+                break
+            print(f"⏳ Waiting for stake to update... (Current: {total_stake.replace('\\n', ' ')})")
+            await asyncio.sleep(1.5)
         
-        print(f"DEBUG: Verified Total Stake context: {total_stake.replace('\\n', ' ')}")
-        
-        if "100" not in total_stake.replace(',', ''):
+        if not verified:
             print(f"❌ SAFETY ABORT: Stake is '{total_stake}', not verified.")
             return False
 
@@ -181,10 +191,26 @@ async def place_bet(page, edge_amt, browser_delay_time=2000, main_amt=100):
 
         if confirmed:
             print("✅ BATCH BET CONFIRMED SUCCESSFULLY!")
+            await asyncio.sleep(2) # Wait for success dialog
+            
+            # 5️⃣ EXTRACT BOOKING CODE
+            booking_code = await page.evaluate('''() => {
+                const codeEl = document.querySelector('.booking-code');
+                if (codeEl) return codeEl.innerText.trim();
+                
+                const copyBtn = document.querySelector('img[data-clipboard-text]');
+                if (copyBtn) return copyBtn.getAttribute('data-clipboard-text');
+                
+                return null;
+            }''')
+            
+            if booking_code:
+                print(f"🎫 BOOKING CODE: {booking_code}")
+                return booking_code
             return True
         else:
             print("⚠️ Confirmation popup not detected. Checking for OK button...")
-            await page.evaluate('(() => { const okBtn = document.querySelector("button.af-button--primary"); if(okBtn) okBtn.click(); })()')
+            await page.evaluate('() => { const okBtn = document.querySelector("button.af-button--primary"); if(okBtn) okBtn.click(); }')
             return False
 
     except Exception as e:

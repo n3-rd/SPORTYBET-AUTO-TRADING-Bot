@@ -1,8 +1,8 @@
 from func import main_date,save_daily_csv2,saving_files,place_bet,sort_by_name_and_time_exact,click_center
 from datetime import datetime
 from pyppeteer import launch
-from Main_Calc import cal
-from Login import Login_to
+from main_calc import cal
+from login import Login_to
 import asyncio
 import pandas as pd
 import warnings
@@ -17,12 +17,14 @@ warnings.simplefilter(action='ignore',category=pd.errors.PerformanceWarning)
 # ==========================================================
 # CONFIGURATION
 # ==========================================================
-STAKE_AMOUNT = 100          # Amount to bet per slip
+# All dynamic options are pulled from environment variables (see main.py)
+STAKE_AMOUNT = int(os.getenv("STAKE_AMOUNT", "100")) 
 MAX_GAMES_PER_SLIP = 10     # Max matches in one accumulator
-PERCENT_THRESHOLD = 50      # Min prediction percentage
-MAX_TOTAL_SLIPS = 5         # Stop after placing this many slips
-AI_MODE = True              # Consult Gemini AI before betting
-IGNORE_HISTORY = True       # Set to True for testing to re-bet same matches
+PERCENT_THRESHOLD = int(os.getenv("PERCENT_THRESHOLD", "50")) # Min prediction percentage
+MAX_TOTAL_SLIPS = int(os.getenv("MAX_TOTAL_SLIPS", "5")) # Stop after placing this many slips
+# Check environment variable for AI mode (default: ON)
+AI_MODE = os.getenv("NO_AI", "false").lower() != "true"
+IGNORE_HISTORY = False       # Set to False to prevent re-betting same matches
 # ==========================================================
 
 # Initialize Gemini if AI_MODE is on
@@ -31,7 +33,7 @@ if AI_MODE:
     if api_key:
         try:
             genai.configure(api_key=api_key)
-            model = genai.GenerativeModel('gemini-1.5-flash')
+            model = genai.GenerativeModel('gemini-2.0-flash')
             print("🤖 Gemini AI initialized successfully.")
         except Exception as e:
             print(f"⚠️ Gemini init error: {e}")
@@ -56,11 +58,16 @@ async def verify_with_ai(home, away, h_per, d_per, a_per, ov_per, un_per, select
         print(f"🤖 AI Result: {text}")
         return "BET: YES" in text.upper()
     except Exception as e:
-        print(f"⚠️ AI API Error: {e}")
+        if "429" in str(e):
+            print(f"⚠️ AI Quota Exceeded (429). Proceeding with fallback...")
+        else:
+            print(f"⚠️ AI API Error: {e}")
         return True # Fallback
 
-csv_files_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), f'CSV FILES/{str(main_date())} Files')
-save_dir = save_daily_csv2(main_dir=os.path.join(os.path.dirname(os.path.dirname(__file__)),'CSV FILES'),second_dir_path_name=str(main_date())+' Main_Files')
+# Project structure: root/src/SportyBet_Bot.py -> data/
+project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+csv_files_path = os.path.join(project_root, 'data', f'{str(main_date())} Files')
+save_dir = save_daily_csv2(main_dir=os.path.join(project_root, 'data'), second_dir_path_name=str(main_date()) + ' Main_Files')
 save_path = f'{save_dir}/Data.csv'
 placed_bets_path = f'{save_dir}/Placed_Bets.csv'
 
@@ -161,7 +168,7 @@ async def main():
         # Place the slip
         if batch_selections:
             print(f"⚡ Selecting {len(batch_selections)} games...")
-            await page.evaluate('''(selections) => {
+            await page.evaluate('''function(selections) {
                 const rows = document.querySelectorAll('.m-table-row, div[id^="match_"]');
                 selections.forEach(s => {
                     const row = rows[s.idx];
@@ -175,13 +182,16 @@ async def main():
             }''', batch_selections)
             
             await asyncio.sleep(2)
-            if await place_bet(page, 0, main_amt=STAKE_AMOUNT):
+            result = await place_bet(page, 0, main_amt=STAKE_AMOUNT)
+            if result:
                 total_slips_placed += 1
                 for s in batch_selections:
                     saving_files(data={'INFO': [s['target']]}, path=placed_bets_path)
-                print(f"✅ Slip #{total_slips_placed} placed!")
+                
+                booking_info = f" [Code: {result}]" if isinstance(result, str) else ""
+                print(f"✅ Slip #{total_slips_placed} placed!{booking_info}")
             
-            await page.evaluate('() => { document.querySelector(".m-betslip-delete-all")?.click(); }')
+            await page.evaluate('() => { const delBtn = document.querySelector(".m-betslip-delete-all"); if(delBtn) delBtn.click(); }')
             batch_selections = [] 
             if total_slips_placed >= MAX_TOTAL_SLIPS: break
             continue 

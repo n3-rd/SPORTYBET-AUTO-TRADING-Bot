@@ -95,129 +95,75 @@ The Kelly formula helps you avoid losing too much and maximize long-term growth.
 If the bot finds a game that looks slightly profitable (say 60% chance to win at 2.00 odds), it’ll only risk a portion (say ₦200).
 This protects your bankroll if you lose and compounds your profits if you win consistently.
 
-📂 Example Project Structure
-sportybet-bot/
-│
-├── bot.py                # Main entry point – runs the entire bot
-├── sportybet.py          # Handles Pyppeteer browser automation
-├── kelly.py              # Kelly Criterion calculation helper
-├── value_bet.py          # Determines which games are value bets
-├── config.py             # Contains user credentials, bankroll, and settings
-├── data/
-│   └── matches.csv       # Optional: Pre-fetched match data
-├── logs/
-│   └── results.csv       # Stores bankroll, results, and bet logs
-├── requirements.txt      # List of Python dependencies
-└── README.md             # Documentation (this file)
+📂 Project Structure
 
-🧩 File Explanations
-bot.py
-
-Controls the full workflow
-
-Loads bankroll and probability thresholds
-
-Calls functions from other modules to calculate values, stakes, and execute bets
-
-sportybet.py
-
-Automates SportyBet using Pyppeteer
-
-Handles:
-
-Login
-
-Scrolling and selecting odds
-
-Inputting stake
-
-Clicking “Place Bet” button
-
-Error handling for slow network
-
-kelly.py
-
-Contains the Kelly Criterion function (cal())
-
-Prevents division by zero and ensures safe stake sizing
-
-value_bet.py
-
-Compares predicted probabilities with SportyBet odds
-
-Filters only bets with positive expected value (> 0)
-
-config.py
-
-Stores user preferences and credentials:
-
-SPORTYBET_EMAIL = "your_email@example.com"
-SPORTYBET_PASSWORD = "your_password"
-BANKROLL = 1000
-PROBABILITY_THRESHOLD = 60
-BETTING_LIMIT = 10  # minimum Kelly output % to place a bet
-
-data/matches.csv
-
-Optional dataset containing:
-
-Match,Odds,Probability
-Arsenal vs Chelsea,2.10,58
-Man City vs Liverpool,1.85,65
-...
-
-logs/results.csv
-
-Records each bet’s:
-
-Match,Odds,Probability,Stake,Result,Balance
-
-🧮 Value Betting Example
-
-Let’s say the bot finds these matches:
-
-Match	Odds	Probability	EV	Bet?
-Arsenal vs Chelsea	2.10	58%	0.218	✅ Yes
-Barcelona vs Madrid	1.90	45%	-0.145	❌ No
-Milan vs Inter	3.00	40%	0.200	✅ Yes
-
-The bot automatically places bets only on Arsenal and Milan.
-
-📈 Example Output Log
-[INFO] Logging in to SportyBet...
-[INFO] Found 2 value bets.
-[BET] Arsenal vs Chelsea | Odds: 2.10 | WinProb: 58% | Kelly Stake: ₦130
-[BET] Milan vs Inter | Odds: 3.00 | WinProb: 40% | Kelly Stake: ₦90
-[INFO] Bets placed successfully.
-[RESULT] Balance updated: ₦1120
-
-🧠 Example Python Usage
-from bot import start_bot
-
-# Run bot with bankroll 1000 and 60% threshold
-start_bot(bankroll=1000, probability_threshold=60)
-
-🧰 Requirements
-
-Install dependencies with:
-
-pip install pyppeteer pandas numpy asyncio
-
-
-Or from the included file:
-
-pip install -r requirements.txt
+```
+SPORTYBET-AUTO-TRADING-Bot/
+├── main.py              # New entry point – use --mode desktop or phone
+├── src/                 # Source code
+│   ├── SportyBet_Bot.py # Desktop version of the bot
+│   ├── SportyBet_Phone.py# Mobile/Phone version of the bot
+│   ├── login.py         # Login automation
+│   ├── main_calc.py     # Kelly Criterion and odds calculations
+│   └── func.py          # Shared utility functions
+├── data/                # CSV data files (Automatically ignored by git)
+├── .env                 # API Keys and sensitive config
+├── requirements.txt     # Python dependencies
+└── README.md            # Documentation
+```
 
 🖥️ Run the Bot
 
-To run in normal mode:
+You can now run the bot from the root directory using `main.py`:
 
-python bot.py
+**1. Full Automation (Scrapers -> Summary -> Bot)**
+By default, the bot runs all scrapers before starting the placement module:
+```bash
+python main.py
+```
 
+**2. Placement Only (Skip Scraping)**
+If you've already scraped data today and just want to place bets:
+```bash
+python main.py --place-bet
+```
 
-To run continuously (Linux/Termux/VPS):
+**3. No AI Mode**
+To disable the Gemini AI analysis (always say YES to bot suggestions):
+```bash
+python main.py --no-ai
+```
 
-nohup python bot.py &
+**4. Phone Mode**
+To run the phone/mobile bot interface:
+```bash
+python main.py --mode phone --place-bet
+```
+
+🧩 File Explanations
+
+- **main.py**: The main entry point for the project. Use the `--mode` flag to choose between desktop and phone.
+- **src/SportyBet_Bot.py**: The primary bot logic for desktop users.
+- **src/SportyBet_Phone.py**: Optimized bot logic for mobile/phone interfaces.
+- **src/login.py**: Handles logging in to SportyBet.
+- **src/main_calc.py**: Contains probability and stake calculation logic.
+- **src/func.py**: Shared helper functions for file handling and name matching.
+
+🧰 Requirements
+
+Install dependencies using the included file:
+
+```bash
+pip install -r requirements.txt
+```
+
+🖥️ Continuous Running (Linux/VPS)
+
+To run the bot in the background:
+
+```bash
+nohup python main.py --mode desktop &
+```
 
 🧠 Tips and Recommendations
 
